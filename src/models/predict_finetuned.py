@@ -1,3 +1,4 @@
+import argparse
 import json
 from pathlib import Path
 from typing import Any, Dict, List
@@ -6,7 +7,6 @@ import torch
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
 
-MAX_INPUT_SAMPLES = 30
 MAX_NEW_TOKENS = 128
 
 
@@ -31,15 +31,22 @@ def get_device() -> torch.device:
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model_dir", type=str, required=True)
+    parser.add_argument("--output_file", type=str, required=True)
+    parser.add_argument("--max_samples", type=int, default=30)
+    args = parser.parse_args()
+
     project_root = Path(__file__).resolve().parents[2]
     dev_path = project_root / "data" / "processed" / "spider_dev.jsonl"
-    model_path = project_root / "outputs" / "checkpoints" / "flan_t5_small_debug" / "final_model"
-    output_path = project_root / "outputs" / "predictions" / "finetuned_predictions.json"
+    model_path = project_root / args.model_dir
+    output_path = project_root / "outputs" / "predictions" / args.output_file
 
-    data = load_jsonl(dev_path)[:MAX_INPUT_SAMPLES]
+    data = load_jsonl(dev_path)[:args.max_samples]
 
     device = get_device()
     print(f"Using device: {device}")
+    print(f"Loading model from: {model_path}")
 
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     model = AutoModelForSeq2SeqLM.from_pretrained(model_path)
@@ -74,7 +81,7 @@ def main():
             "gold_sql": row["target_sql"],
             "predicted_sql": predicted_sql
         })
-
+        
         print("-" * 80)
         print(f"Example {i}")
         print(f"Question: {row['question']}")
@@ -82,7 +89,7 @@ def main():
         print(f"Predicted SQL: {predicted_sql}")
 
     save_json(output_path, predictions)
-    print(f"\nSaved predictions to: {output_path}")
+    print(f"Saved predictions to: {output_path}")
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+import argparse
 import json
 import re
 from pathlib import Path
@@ -5,10 +6,6 @@ from typing import Any
 
 import sqlglot
 from sqlglot.errors import ParseError
-
-
-PREDICTIONS_FILENAME = "finetuned_predictions.json"
-REPORT_FILENAME = "finetuned_report.json"
 
 
 def load_json(path: Path) -> Any:
@@ -47,9 +44,14 @@ def categorize_error(gold_sql: str, predicted_sql: str) -> str:
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--predictions_file", type=str, required=True)
+    parser.add_argument("--report_file", type=str, required=True)
+    args = parser.parse_args()
+
     project_root = Path(__file__).resolve().parents[2]
-    predictions_path = project_root / "outputs" / "predictions" / PREDICTIONS_FILENAME
-    report_path = project_root / "outputs" / "reports" / REPORT_FILENAME
+    predictions_path = project_root / "outputs" / "predictions" / args.predictions_file
+    report_path = project_root / "outputs" / "reports" / args.report_file
 
     predictions = load_json(predictions_path)
 

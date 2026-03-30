@@ -1,10 +1,9 @@
-import json
+import argparse
 from pathlib import Path
 from typing import Dict, Any
 
 import yaml
 import torch
-from datasets import Dataset
 from transformers import (
     AutoTokenizer,
     AutoModelForSeq2SeqLM,
@@ -39,19 +38,33 @@ def tokenize_function(examples, tokenizer, max_input_length: int, max_target_len
 
 
 def compute_simple_metrics(eval_preds):
-    predictions, labels = eval_preds
-
     return {}
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--config",
+        type=str,
+        required=True,
+        help="Relative path to YAML config file from project root"
+    )
+    args = parser.parse_args()
+
     project_root = Path(__file__).resolve().parents[2]
-    config_path = project_root / "configs" / "flan_t5_small_debug.yaml"
+    config_path = project_root / args.config
     config = load_config(config_path)
 
     train_path = project_root / config["train_file"]
     dev_path = project_root / config["dev_file"]
     output_dir = project_root / config["output_dir"]
+
+    print(f"Using config: {config_path}")
+    print(f"Model: {config['model_name']}")
+
+    # Detect GPU availability
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
 
     train_dataset = load_jsonl_as_dataset(
         train_path,
@@ -65,13 +78,8 @@ def main():
     print(f"Train dataset size: {len(train_dataset)}")
     print(f"Dev dataset size: {len(dev_dataset)}")
 
-    # Detect GPU availability
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
-
-    model_name = config["model_name"]
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+    tokenizer = AutoTokenizer.from_pretrained(config["model_name"])
+    model = AutoModelForSeq2SeqLM.from_pretrained(config["model_name"])
     model.to(device)
 
     tokenized_train = train_dataset.map(
@@ -134,12 +142,7 @@ def main():
     trainer.save_model(str(final_model_dir))
     tokenizer.save_pretrained(str(final_model_dir))
 
-    print("\n" + "=" * 80)
-    print("Training Complete!")
-    print("=" * 80)
-    print(f"Final model saved to: {final_model_dir}")
-    print(f"Checkpoint directory: {output_dir}")
-    print("=" * 80)
+    print(f"Saved final model to: {final_model_dir}")
 
 
 if __name__ == "__main__":
