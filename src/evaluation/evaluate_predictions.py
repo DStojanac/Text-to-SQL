@@ -19,13 +19,27 @@ def normalize_sql(text: str) -> str:
     return text.lower()
 
 
+def canonicalize_sql(text: str) -> str | None:
+    try:
+        parsed = sqlglot.parse_one(text, read="sqlite")
+        return parsed.sql(dialect="sqlite")
+    except Exception:
+        return None
+
+
 def exact_match(gold_sql: str, predicted_sql: str) -> bool:
+    gold_canonical = canonicalize_sql(gold_sql)
+    pred_canonical = canonicalize_sql(predicted_sql)
+
+    if gold_canonical is not None and pred_canonical is not None:
+        return normalize_sql(gold_canonical) == normalize_sql(pred_canonical)
+
     return normalize_sql(gold_sql) == normalize_sql(predicted_sql)
 
 
 def parses_as_sql(predicted_sql: str) -> bool:
     try:
-        sqlglot.parse_one(predicted_sql)
+        sqlglot.parse_one(predicted_sql, read="sqlite")
         return True
     except ParseError:
         return False
