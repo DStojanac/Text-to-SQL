@@ -1,0 +1,29 @@
+model_name: google/flan-t5-base
+
+train_file: data/processed/spider_train.jsonl
+dev_file: data/processed/spider_dev.jsonl
+
+output_dir: outputs/checkpoints/flan_t5_base_full_colab_improved
+
+max_input_length: 512
+max_target_length: 256
+
+train_subset_size: null
+dev_subset_size: 500
+
+num_train_epochs: 4
+learning_rate: 3e-4
+weight_decay: 0.01
+
+per_device_train_batch_size: 4
+per_device_eval_batch_size: 4
+gradient_accumulation_steps: 4
+
+warmup_ratio: 0.05
+logging_steps: 50
+save_total_limit: 2
+
+predict_with_generate: true
+generation_max_length: 256
+
+fp16: false
