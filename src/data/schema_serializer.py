@@ -22,22 +22,30 @@ def format_foreign_keys(schema: Dict[str, Any]) -> List[str]:
 
 def serialize_schema(db_id: str) -> str:
     schema = get_schema_for_db(db_id)
+    pk_columns = schema["primary_keys"]
 
     lines = []
     lines.append("Database schema:")
+    lines.append(f"database_id: {schema['db_id']}")
+    lines.append("tables:")
 
     for table_name in schema["tables"]:
-        lines.append(f"table: {table_name}")
+        lines.append(f"- table: {table_name}")
+        lines.append("  columns:")
         column_entries = schema["columns_by_table"][table_name]
-        col_text = ", ".join([c["column_name"] for c in column_entries])
-        lines.append(f"columns: {col_text}")
-        lines.append("")
+        for col in column_entries:
+            pk_tag = " [PK]" if col["column_index"] in pk_columns else ""
+            lines.append(
+                f"  - {col['column_name']} ({col['column_type']}){pk_tag}"
+            )
 
     fk_lines = format_foreign_keys(schema)
+    lines.append("foreign_keys:")
     if fk_lines:
-        lines.append("foreign keys:")
         for fk in fk_lines:
-            lines.append(fk)
+            lines.append(f"- {fk}")
+    else:
+        lines.append("- none")
 
     return "\n".join(lines).strip()
 
