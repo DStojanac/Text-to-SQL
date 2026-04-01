@@ -5,9 +5,16 @@ def build_model_input(question: str, db_id: str) -> str:
     schema_text = serialize_schema(db_id)
 
     prompt = (
-        "Translate the question into SQL.\n\n"
+        "Given the database schema below, translate the natural language question "
+        "into a valid SQLite SELECT-only SQL query.\n"
+        "Rules:\n"
+        "- Use ONLY the tables and columns provided in the schema.\n"
+        "- Prefer join paths that follow the listed foreign keys.\n"
+        "- Never invent new table or column names.\n"
+        "- Return only the SQL query, no explanation.\n\n"
         f"{schema_text}\n\n"
-        f"Question:\n{question}"
+        f"Question: {question}\n"
+        "SQL:"
     )
     return prompt
 
