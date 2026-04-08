@@ -16,14 +16,11 @@ num_train_epochs: 6
 learning_rate: 5e-5
 weight_decay: 0.01
 
-per_device_train_batch_size: 1
-per_device_eval_batch_size: 1
-gradient_accumulation_steps: 16
+per_device_train_batch_size: 4
+per_device_eval_batch_size: 4
+gradient_accumulation_steps: 4
 
-# Gradient checkpointing trades speed for memory — instead of keeping
-# all intermediate activations in VRAM, it recomputes them during the
-# backward pass.
-gradient_checkpointing: true
+gradient_checkpointing: false
 
 warmup_ratio: 0.1
 logging_steps: 50
@@ -32,5 +29,5 @@ save_total_limit: 3
 predict_with_generate: true
 generation_max_length: 256
 
-# fp16 works well on Colab GPUs
 fp16: false
+bf16: true
