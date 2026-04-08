@@ -1,13 +1,16 @@
 import argparse
+import re
 from pathlib import Path
 from typing import Dict, Any
 
+import numpy as np
 import yaml
 import torch
 from transformers import (
     AutoTokenizer,
     AutoModelForSeq2SeqLM,
     DataCollatorForSeq2Seq,
+    EarlyStoppingCallback,
     Seq2SeqTrainer,
     Seq2SeqTrainingArguments,
 )
@@ -37,8 +40,51 @@ def tokenize_function(examples, tokenizer, max_input_length: int, max_target_len
     return model_inputs
 
 
-def compute_simple_metrics(eval_preds):
-    return {}
+def normalize_sql(text: str) -> str:
+    """Lowercase, collapse whitespace, strip — for comparing SQL strings."""
+    text = text.strip()
+    text = re.sub(r"\s+", " ", text)
+    return text.lower()
+
+
+def build_compute_metrics(tokenizer):
+    """Returns a compute_metrics function that has access to the tokenizer.
+
+    Why a closure? The HuggingFace Trainer calls compute_metrics(eval_preds)
+    with only one argument. But we need the tokenizer to decode token IDs
+    back into text. A closure captures the tokenizer in the outer scope.
+    """
+
+    def compute_metrics(eval_preds):
+        predictions, label_ids = eval_preds
+
+        predictions = np.where(
+            predictions != -100, predictions, tokenizer.pad_token_id
+        )
+        label_ids = np.where(
+            label_ids != -100, label_ids, tokenizer.pad_token_id
+        )
+
+        # Decode token IDs back into text strings
+        decoded_preds = tokenizer.batch_decode(
+            predictions, skip_special_tokens=True
+        )
+        decoded_labels = tokenizer.batch_decode(
+            label_ids, skip_special_tokens=True
+        )
+
+        # Count exact matches after normalization
+        exact = sum(
+            normalize_sql(pred) == normalize_sql(gold)
+            for pred, gold in zip(decoded_preds, decoded_labels)
+        )
+        total = len(decoded_preds)
+
+        return {
+            "exact_match": exact / total if total > 0 else 0.0,
+        }
+
+    return compute_metrics
 
 
 def main():
@@ -124,7 +170,17 @@ def main():
         fp16=bool(config["fp16"]),
         warmup_ratio=float(config["warmup_ratio"]),
         report_to="none",
-        load_best_model_at_end=False
+        load_best_model_at_end=True,
+        metric_for_best_model="exact_match",
+        greater_is_better=True,
+    )
+
+    # Early stopping: if exact_match doesn't improve for 2 consecutive
+    # evaluations (epochs), stop training. This prevents overfitting —
+
+    early_stopping = EarlyStoppingCallback(
+        early_stopping_patience=2,  # stop after 2 epochs with no improvement
+        early_stopping_threshold=0.01,  # improvement must be > 1% to count
     )
 
     trainer = Seq2SeqTrainer(
@@ -133,7 +189,8 @@ def main():
         train_dataset=tokenized_train,
         eval_dataset=tokenized_dev,
         data_collator=data_collator,
-        compute_metrics=compute_simple_metrics
+        compute_metrics=build_compute_metrics(tokenizer),
+        callbacks=[early_stopping],
     )
 
     trainer.train()
