@@ -16,6 +16,8 @@ def load_json(path: Path) -> Any:
 def normalize_sql(text: str) -> str:
     text = text.strip()
     text = re.sub(r"\s+", " ", text)
+    # Normalize quote styles: in SQLite both ' and " are valid for string
+    text = text.replace('"', "'").replace('`', "'")
     return text.lower()
 
 
