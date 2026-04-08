@@ -168,6 +168,7 @@ def main():
         predict_with_generate=bool(config["predict_with_generate"]),
         generation_max_length=int(config["generation_max_length"]),
         fp16=bool(config["fp16"]),
+        gradient_checkpointing=bool(config.get("gradient_checkpointing", False)),
         warmup_ratio=float(config["warmup_ratio"]),
         report_to="none",
         load_best_model_at_end=True,
