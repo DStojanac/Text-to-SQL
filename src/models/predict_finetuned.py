@@ -34,7 +34,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_dir", type=str, required=True)
     parser.add_argument("--output_file", type=str, required=True)
-    parser.add_argument("--max_samples", type=int, default=30)
+    parser.add_argument("--max_samples", type=int, default=None,
+                        help="Max dev samples to predict (default: all)")
+    parser.add_argument("--num_beams", type=int, default=4,
+                        help="Beam search width (1=greedy, 4=recommended)")
     args = parser.parse_args()
 
     project_root = Path(__file__).resolve().parents[2]
@@ -42,7 +45,9 @@ def main():
     model_path = project_root / args.model_dir
     output_path = project_root / "outputs" / "predictions" / args.output_file
 
-    data = load_jsonl(dev_path)[:args.max_samples]
+    data = load_jsonl(dev_path)
+    if args.max_samples is not None:
+        data = data[:args.max_samples]
 
     device = get_device()
     print(f"Using device: {device}")
@@ -69,7 +74,13 @@ def main():
         with torch.no_grad():
             outputs = model.generate(
                 **inputs,
-                max_new_tokens=MAX_NEW_TOKENS
+                max_new_tokens=256,
+                # Beam search: explore num_beams parallel candidate sequences
+                # and pick the best one.
+                num_beams=args.num_beams,
+                early_stopping=True,
+                # Prevent any 3-token sequence from repeating. 
+                no_repeat_ngram_size=3,
             )
 
         predicted_sql = tokenizer.decode(outputs[0], skip_special_tokens=True)
