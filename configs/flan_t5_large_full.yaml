@@ -33,4 +33,4 @@ predict_with_generate: true
 generation_max_length: 256
 
 # fp16 works well on Colab GPUs
-fp16: true
+fp16: false
