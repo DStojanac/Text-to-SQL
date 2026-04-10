@@ -10,7 +10,6 @@ from transformers import (
     AutoTokenizer,
     AutoModelForSeq2SeqLM,
     DataCollatorForSeq2Seq,
-    EarlyStoppingCallback,
     Seq2SeqTrainer,
     Seq2SeqTrainingArguments,
 )
@@ -177,14 +176,6 @@ def main():
         greater_is_better=True,
     )
 
-    # Early stopping: if exact_match doesn't improve for 2 consecutive
-    # evaluations (epochs), stop training. This prevents overfitting —
-
-    early_stopping = EarlyStoppingCallback(
-        early_stopping_patience=2,  # stop after 2 epochs with no improvement
-        early_stopping_threshold=0.01,  # improvement must be > 1% to count
-    )
-
     trainer = Seq2SeqTrainer(
         model=model,
         args=training_args,
@@ -192,7 +183,6 @@ def main():
         eval_dataset=tokenized_dev,
         data_collator=data_collator,
         compute_metrics=build_compute_metrics(tokenizer),
-        callbacks=[early_stopping],
     )
 
     trainer.train()
