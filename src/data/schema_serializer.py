@@ -15,7 +15,7 @@ def format_foreign_keys(schema: Dict[str, Any]) -> List[str]:
         src_table = schema["tables"][src_table_idx]
         tgt_table = schema["tables"][tgt_table_idx]
 
-        fk_lines.append(f"{src_table}.{src_col_name} -> {tgt_table}.{tgt_col_name}")
+        fk_lines.append(f"{src_table}.{src_col_name}={tgt_table}.{tgt_col_name}")
 
     return fk_lines
 
@@ -24,30 +24,21 @@ def serialize_schema(db_id: str) -> str:
     schema = get_schema_for_db(db_id)
     pk_columns = schema["primary_keys"]
 
-    lines = []
-    lines.append("Database schema:")
-    lines.append(f"database_id: {schema['db_id']}")
-    lines.append("tables:")
-
+    table_parts = []
     for table_name in schema["tables"]:
-        lines.append(f"- table: {table_name}")
-        lines.append("  columns:")
-        column_entries = schema["columns_by_table"][table_name]
-        for col in column_entries:
-            pk_tag = " [PK]" if col["column_index"] in pk_columns else ""
-            lines.append(
-                f"  - {col['column_name']} ({col['column_type']}){pk_tag}"
-            )
+        col_strs = []
+        for col in schema["columns_by_table"][table_name]:
+            pk_tag = "*" if col["column_index"] in pk_columns else ""
+            col_strs.append(f"{col['column_name']}{pk_tag}")
+        table_parts.append(f"{table_name}({', '.join(col_strs)})")
+
+    result = " | ".join(table_parts)
 
     fk_lines = format_foreign_keys(schema)
-    lines.append("foreign_keys:")
     if fk_lines:
-        for fk in fk_lines:
-            lines.append(f"- {fk}")
-    else:
-        lines.append("- none")
+        result += " FK: " + ", ".join(fk_lines)
 
-    return "\n".join(lines).strip()
+    return result
 
 
 if __name__ == "__main__":
