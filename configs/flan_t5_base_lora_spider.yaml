@@ -1,0 +1,55 @@
+# FLAN-T5-Base + LoRA on Spider (with schema linking)
+# Hardware: GTX 1660 6GB (no fp16, no bf16)
+
+model_name: google/flan-t5-base
+
+# LoRA
+use_lora: true
+lora_rank: 8
+lora_alpha: 16
+lora_target_modules:
+  - q
+  - v
+lora_dropout: 0.1
+
+# Data
+train_file: data/processed/spider_train_linked.jsonl
+dev_file: data/processed/spider_dev_linked.jsonl
+train_subset_size: null
+dev_subset_size: null
+
+# Tokenization
+max_input_length: 512
+max_target_length: 256
+
+# Training
+num_train_epochs: 5
+learning_rate: 3e-4
+weight_decay: 0.01
+per_device_train_batch_size: 2
+per_device_eval_batch_size: 2
+gradient_accumulation_steps: 16
+warmup_ratio: 0.1
+lr_scheduler_type: linear
+
+# Precision — not supported on GTX 1660
+fp16: false
+bf16: false
+
+# Evaluation & saving
+eval_strategy: epoch
+save_strategy: epoch
+save_total_limit: 3
+load_best_model_at_end: true
+metric_for_best_model: exact_match
+greater_is_better: true
+
+# Generation during eval
+predict_with_generate: true
+generation_max_length: 256
+
+# Logging
+logging_steps: 50
+
+# Output
+output_dir: outputs/checkpoints/flan_t5_base_lora_spider
