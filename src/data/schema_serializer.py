@@ -6,22 +6,30 @@ from src.data.schema_reader import get_schema_for_db
 def format_foreign_keys(schema: Dict[str, Any]) -> List[str]:
     column_names_original = schema["column_names_original"]
     fk_pairs = schema["foreign_keys"]
+    # Pruned schemas have "original_tables" (the full list) for index lookup,
+    # since "tables" only contains the selected subset.
+    table_list = schema.get("original_tables", schema["tables"])
 
     fk_lines = []
     for source_col_idx, target_col_idx in fk_pairs:
         src_table_idx, src_col_name = column_names_original[source_col_idx]
         tgt_table_idx, tgt_col_name = column_names_original[target_col_idx]
 
-        src_table = schema["tables"][src_table_idx]
-        tgt_table = schema["tables"][tgt_table_idx]
+        src_table = table_list[src_table_idx]
+        tgt_table = table_list[tgt_table_idx]
 
         fk_lines.append(f"{src_table}.{src_col_name}={tgt_table}.{tgt_col_name}")
 
     return fk_lines
 
 
-def serialize_schema(db_id: str) -> str:
-    schema = get_schema_for_db(db_id)
+def _serialize_schema_from_dict(schema: Dict[str, Any]) -> str:
+    """Core serialization logic that works on any schema dict.
+
+    Used by both serialize_schema() and serialize_pruned_schema().
+    The schema dict must have: tables, columns_by_table, primary_keys,
+    foreign_keys, column_names_original.
+    """
     pk_columns = schema["primary_keys"]
 
     table_parts = []
@@ -39,6 +47,20 @@ def serialize_schema(db_id: str) -> str:
         result += " FK: " + ", ".join(fk_lines)
 
     return result
+
+
+def serialize_schema(db_id: str) -> str:
+    schema = get_schema_for_db(db_id)
+    return _serialize_schema_from_dict(schema)
+
+
+def serialize_pruned_schema(pruned_schema: Dict[str, Any]) -> str:
+    """Serialize a pruned schema dict (from schema_linker.prune_schema).
+
+    Same output format as serialize_schema(), but operates on an already-
+    filtered schema dict instead of loading the full schema by db_id.
+    """
+    return _serialize_schema_from_dict(pruned_schema)
 
 
 if __name__ == "__main__":
