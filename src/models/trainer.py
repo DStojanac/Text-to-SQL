@@ -14,6 +14,7 @@ from typing import Any, Dict
 
 import numpy as np
 import torch
+import transformers
 import yaml
 from transformers import (
     AutoModelForSeq2SeqLM,
@@ -26,6 +27,54 @@ from transformers import (
 )
 
 from src.data.hf_dataset_loader import load_jsonl_as_dataset
+
+
+def print_env_info() -> None:
+    """Log library versions + TF32 status.
+
+    TF32 is enabled by default on Ampere (A100) for float32 matmul; it silently
+    truncates the mantissa to 10 bits. This can be enough to destabilize LoRA
+    on T5 where the effective learning signal is already small. We print the
+    status so it's visible in every training log.
+    """
+    try:
+        import peft
+
+        peft_version = peft.__version__
+    except Exception:
+        peft_version = "<not installed>"
+    try:
+        import accelerate
+
+        accel_version = accelerate.__version__
+    except Exception:
+        accel_version = "<not installed>"
+
+    print("=" * 60)
+    print("[ENV] Library versions")
+    print(f"  transformers: {transformers.__version__}")
+    print(f"  peft:         {peft_version}")
+    print(f"  torch:        {torch.__version__}")
+    print(f"  accelerate:   {accel_version}")
+    if torch.cuda.is_available():
+        print(f"  TF32 matmul:  {torch.backends.cuda.matmul.allow_tf32}")
+        print(f"  TF32 cudnn:   {torch.backends.cudnn.allow_tf32}")
+    print("=" * 60)
+
+
+def disable_tf32() -> None:
+    """Force pure FP32 matmul / convolutions on Ampere GPUs.
+
+    TF32 is a silent precision downgrade on A100/H100 that does not apply on
+    Turing (GTX 1660). Disabling it here makes A100 numerics match our local
+    baseline, eliminating one variable when comparing runs across hardware.
+    """
+    try:
+        torch.backends.cuda.matmul.allow_tf32 = False
+        torch.backends.cudnn.allow_tf32 = False
+        torch.set_float32_matmul_precision("highest")
+    except Exception as e:
+        print(f"[WARN] Could not disable TF32: {e}")
 
 
 def load_config(config_path: Path) -> Dict[str, Any]:
@@ -229,6 +278,13 @@ def main():
     # Reproducibility — set before any model init so that LoRA init is deterministic too
     seed = int(config.get("seed", 42))
     set_seed(seed)
+
+    # Kill TF32 on Ampere (A100/H100) unless config explicitly opts in.
+    # Default off: matches Turing (GTX 1660) numerics so cross-hardware runs are comparable.
+    if not bool(config.get("allow_tf32", False)):
+        disable_tf32()
+
+    print_env_info()
 
     print(f"Config: {config_path}")
     print(f"Model: {config['model_name']}")
