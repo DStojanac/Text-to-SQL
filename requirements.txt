@@ -1,29 +1,35 @@
-# Core ML
-torch>=2.0
-transformers>=4.40
-datasets>=2.18
-peft>=0.10
-accelerate>=0.28
-sentencepiece
-bitsandbytes
+# --- Core ML stack 
+transformers==4.46.3
+peft==0.13.2
+accelerate==0.34.2
+datasets==3.0.2
+tokenizers>=0.20,<0.21
+safetensors>=0.4.5
+sentencepiece==0.2.0
 
-# SQL tools
+
+torch>=2.4,<2.12
+
+# Quantized training (QLoRA for the Qwen-Coder phase later)
+bitsandbytes>=0.44.1
+
+# --- SQL tools ---
 sqlglot>=23.0
 
-# Evaluation & data
+# --- Evaluation & data ---
 evaluate
 scikit-learn
 pandas
 numpy
 matplotlib
 
-# Experiment tracking
+# --- Experiment tracking ---
 wandb
 
-# Config & utils
+# --- Config & utils ---
 pyyaml
 tqdm
 
-# Notebooks
+# --- Notebooks 
 jupyter
 ipykernel
