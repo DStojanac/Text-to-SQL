@@ -1,0 +1,74 @@
+# FIXED improved config: rank=16 [q,k,v,o] with eval_loss early stopping
+# Key changes from flan_t5_base_a100_improved.yaml:
+#   1. metric_for_best_model: eval_loss (prevents early stopping at 0% EM)
+#   2. num_train_epochs: 20 (more time to converge with 3.5M params)
+#   3. early_stopping_patience: 5 (on eval_loss)
+#   4. warmup_ratio: 0.1 (match Tier 1)
+#   5. lr_scheduler_type: linear (match Tier 1)
+
+model_name: google/flan-t5-base
+
+# LoRA — enhanced config
+use_lora: true
+lora_rank: 16
+lora_alpha: 32
+lora_target_modules:
+  - q
+  - k
+  - v
+  - o
+lora_dropout: 0.05
+
+# Data
+train_file: data/processed/spider_train_linked_mt10.jsonl
+dev_file: data/processed/spider_dev_linked_mt10.jsonl
+train_subset_size: null
+dev_subset_size: null
+
+# Tokenization
+max_input_length: 512
+max_target_length: 256
+
+# Training
+num_train_epochs: 20
+learning_rate: 3e-4
+weight_decay: 0.01
+per_device_train_batch_size: 8
+per_device_eval_batch_size: 8
+gradient_accumulation_steps: 4
+eval_accumulation_steps: 4
+warmup_ratio: 0.1
+lr_scheduler_type: linear
+seed: 42
+
+# Precision
+fp16: false
+bf16: true
+
+# No gradient checkpointing
+gradient_checkpointing: false
+
+# Evaluation & saving — USE EVAL_LOSS to prevent premature early stopping
+# Step-based eval (~500 steps ≈ 2.3 epochs at batch 8×4) to avoid 20× full-dev
+# generation passes; saves a large fraction of A100 wall time vs eval every epoch.
+eval_strategy: steps
+eval_steps: 500
+save_strategy: steps
+save_steps: 500
+save_total_limit: 3
+load_best_model_at_end: true
+metric_for_best_model: eval_loss
+greater_is_better: false
+
+# Early stopping
+early_stopping_patience: 5
+
+# Generation during eval
+predict_with_generate: true
+generation_max_length: 256
+
+# Logging
+logging_steps: 25
+
+# Output
+output_dir: outputs/checkpoints/flan_t5_base_a100_v4
