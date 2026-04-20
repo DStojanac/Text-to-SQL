@@ -377,7 +377,8 @@ def main():
         metric_for_best_model=config.get("metric_for_best_model", "exact_match"),
         greater_is_better=config.get("greater_is_better", True),
         seed=seed,
-        data_seed=seed,
+        # data_seed omitted: requires accelerate>=1.1.0; we pin accelerate 0.34.x for
+        # transformers 4.46 stability. set_seed(seed) above already seeds RNGs.
     )
 
     # Callbacks
