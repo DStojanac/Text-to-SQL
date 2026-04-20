@@ -43,15 +43,16 @@ bf16: false
 # No gradient checkpointing
 gradient_checkpointing: false
 
-# Evaluation & saving — USE EVAL_LOSS to prevent premature early stopping
-eval_strategy: epoch
-save_strategy: epoch
+eval_strategy: steps
+eval_steps: 500
+save_strategy: steps
+save_steps: 500
 save_total_limit: 3
 load_best_model_at_end: true
 metric_for_best_model: eval_loss
 greater_is_better: false
 
-# Early stopping
+# Early stopping (counts consecutive eval rounds, same as with epoch strategy)
 early_stopping_patience: 3
 
 # Generation during eval
