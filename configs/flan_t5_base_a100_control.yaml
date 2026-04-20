@@ -1,0 +1,65 @@
+# CONTROL EXPERIMENT: Tier 1 LoRA config on A100
+# Goal: Confirm the training pipeline works on Colab
+# Changes from original Tier 1: bigger batch (A100 VRAM), eval_loss early stopping
+# Data: same mt10 data
+
+model_name: google/flan-t5-base
+
+# LoRA — EXACT Tier 1 settings (these WORKED locally)
+use_lora: true
+lora_rank: 8
+lora_alpha: 16
+lora_target_modules:
+  - q
+  - v
+lora_dropout: 0.1
+
+# Data — using mt10 to avoid needing to upload mt6
+train_file: data/processed/spider_train_linked_mt10.jsonl
+dev_file: data/processed/spider_dev_linked_mt10.jsonl
+train_subset_size: null
+dev_subset_size: null
+
+# Tokenization
+max_input_length: 512
+max_target_length: 256
+
+# Training — same hyperparams as Tier 1
+num_train_epochs: 10
+learning_rate: 3e-4
+weight_decay: 0.01
+per_device_train_batch_size: 8
+per_device_eval_batch_size: 8
+gradient_accumulation_steps: 4
+eval_accumulation_steps: 4
+warmup_ratio: 0.1
+lr_scheduler_type: linear
+seed: 42
+
+# Precision
+fp16: false
+bf16: false
+
+# No gradient checkpointing
+gradient_checkpointing: false
+
+# Evaluation & saving — USE EVAL_LOSS to prevent premature early stopping
+eval_strategy: epoch
+save_strategy: epoch
+save_total_limit: 3
+load_best_model_at_end: true
+metric_for_best_model: eval_loss
+greater_is_better: false
+
+# Early stopping
+early_stopping_patience: 3
+
+# Generation during eval
+predict_with_generate: true
+generation_max_length: 256
+
+# Logging
+logging_steps: 25
+
+# Output
+output_dir: outputs/checkpoints/flan_t5_base_a100_control
