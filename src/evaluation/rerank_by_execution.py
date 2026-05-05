@@ -6,11 +6,17 @@ This script takes a predictions JSON whose rows carry a `candidates` list
 (top-K beam outputs, typically K=8) and picks ONE SQL per row by running the
 candidates on the real SQLite database.
 
-Two modes
----------
+Modes
+-----
 - ``first_executable`` (realistic, no gold used):
     Try candidates in beam order; pick the first one that runs without error.
-    If none runs, keep the original top-1. 
+    If none runs, keep the original top-1.
+
+- ``first_executable_schema_first`` (realistic, no gold used):
+    Same as above, but prefer the first candidate that both passes a static
+    Spider schema check (sqlglot + ``tables.json`` index) **and** executes.
+    If none qualify, fall back to the first executable candidate (same as
+    ``first_executable``).
 
 - ``oracle`` (upper-bound, uses gold result):
     Among candidates that run, pick the first whose result set equals the
@@ -22,13 +28,15 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
+from src.data.schema_reader import build_schema_index
 from src.evaluation.execute_eval import (
     execute_sql,
     get_db_path,
     normalize_sql_for_exec,
 )
+from src.evaluation.schema_sql_spider import sql_references_valid_for_spider_db
 
 
 def load_json(path: Path) -> Any:
@@ -46,6 +54,7 @@ def rerank_row(
     row: Dict[str, Any],
     project_root: Path,
     mode: str,
+    schema_index: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """Pick a SQL for one prediction row.
 
@@ -69,6 +78,7 @@ def rerank_row(
     chosen_rank = 0
     any_executable = False
     picked_reason = "fallback_top1"
+    schema_valid_chosen: Optional[bool] = None
 
     if mode == "first_executable":
         for rank, cand in enumerate(candidates):
@@ -79,6 +89,42 @@ def rerank_row(
                 chosen_rank = rank
                 picked_reason = "first_executable"
                 break
+
+    elif mode == "first_executable_schema_first":
+        if schema_index is None:
+            raise ValueError(
+                "schema_index is required for mode first_executable_schema_first"
+            )
+        schema = schema_index[db_id]
+        chosen_done = False
+        for rank, cand in enumerate(candidates):
+            schema_ok, _ = sql_references_valid_for_spider_db(cand, schema)
+            if not schema_ok:
+                continue
+            ok, _ = execute_sql(db_path, cand)
+            if ok:
+                any_executable = True
+                chosen_sql = cand
+                chosen_rank = rank
+                picked_reason = "schema_first_executable"
+                schema_valid_chosen = True
+                chosen_done = True
+                break
+        if not chosen_done:
+            for rank, cand in enumerate(candidates):
+                ok, _ = execute_sql(db_path, cand)
+                if ok:
+                    any_executable = True
+                    chosen_sql = cand
+                    chosen_rank = rank
+                    picked_reason = "first_executable_schema_fallback_exec"
+                    s_ok, _ = sql_references_valid_for_spider_db(cand, schema)
+                    schema_valid_chosen = s_ok
+                    chosen_done = True
+                    break
+        if not chosen_done:
+            picked_reason = "fallback_top1"
+            schema_valid_chosen = False
 
     elif mode == "oracle":
         first_exec_idx = None
@@ -108,7 +154,7 @@ def rerank_row(
 
     out_row = dict(row)
     out_row["predicted_sql"] = chosen_sql
-    out_row["rerank"] = {
+    rerank_meta: Dict[str, Any] = {
         "mode": mode,
         "chosen_rank": chosen_rank,
         "num_candidates": len(candidates),
@@ -117,6 +163,9 @@ def rerank_row(
         "original_top1": top1,
         "changed": chosen_sql.strip() != top1.strip(),
     }
+    if schema_valid_chosen is not None:
+        rerank_meta["schema_valid_chosen"] = schema_valid_chosen
+    out_row["rerank"] = rerank_meta
 
     stats = {
         "any_executable": any_executable,
@@ -140,7 +189,11 @@ def main() -> None:
     )
     parser.add_argument(
         "--mode",
-        choices=["first_executable", "oracle"],
+        choices=[
+            "first_executable",
+            "first_executable_schema_first",
+            "oracle",
+        ],
         default="first_executable",
         help="Rerank rule (default: first_executable).",
     )
@@ -153,6 +206,9 @@ def main() -> None:
     args = parser.parse_args()
 
     project_root = Path(__file__).resolve().parents[2]
+    schema_index: Optional[Dict[str, Dict[str, Any]]] = None
+    if args.mode == "first_executable_schema_first":
+        schema_index = build_schema_index()
     predictions_path = project_root / "outputs" / "predictions" / args.predictions_file
     output_path = project_root / "outputs" / "predictions" / args.output_file
 
@@ -166,7 +222,9 @@ def main() -> None:
     reasons: Dict[str, int] = {}
 
     for i, row in enumerate(rows, start=1):
-        out_row, stats = rerank_row(row, project_root, args.mode)
+        out_row, stats = rerank_row(
+            row, project_root, args.mode, schema_index=schema_index
+        )
         out_rows.append(out_row)
 
         if stats["any_executable"]:
