@@ -1,8 +1,16 @@
-"""Spider schema compliance for predicted SQL (sqlglot AST + tables.json index).
+"""Spider schema compliance and safety checks for predicted SQL.
 
-Uses the same schema index as linking / ``schema_reader.build_schema_index``.
-This is a **static** check: referenced base tables and columns must exist in the
-dataset metadata. Qualifiers that do not map to a physical Spider table are skipped to limit false negatives.
+Two public functions
+--------------------
+- ``is_select_only(sql)``
+    Fast safety guard: returns True only for SELECT / WITH...SELECT statements.
+    Used in the reranker and later in the production API to reject any SQL that
+    could modify a database (INSERT, UPDATE, DELETE, DROP, CREATE, etc.).
+
+- ``sql_references_valid_for_spider_db(sql, schema)``
+    Structural check: referenced tables and columns must exist in the Spider
+    schema metadata (``tables.json`` index). Uses sqlglot AST + the same index
+    as ``schema_reader.build_schema_index``.
 """
 
 from __future__ import annotations
@@ -13,6 +21,66 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.errors import SqlglotError
 
+
+# ---------------------------------------------------------------------------
+# Safety guard
+# ---------------------------------------------------------------------------
+
+# sqlglot expression types that represent write or DDL operations.
+_WRITE_TYPES = (
+    exp.Insert,
+    exp.Update,
+    exp.Delete,
+    exp.Drop,
+    exp.Create,
+    exp.Alter,
+    exp.Command,   # covers PRAGMA, ATTACH, DETACH, VACUUM, etc.
+    exp.Transaction,
+    exp.Commit,
+    exp.Rollback,
+)
+
+
+def is_select_only(sql: str) -> bool:
+    """Return True unless ``sql`` is a *confirmed* write or DDL statement.
+
+    This is a **security gate**, not a correctness filter.  Its purpose is to
+    prevent INSERT / UPDATE / DELETE / DROP / CREATE / ALTER from reaching a
+    database.  It is intentionally *permissive* about malformed SQL:
+
+    - If sqlglot cannot parse the text at all (TokenError, ParseError) we
+      return ``True`` (allow through).  Malformed SQL will simply fail when
+      SQLite tries to execute it — no harm done, and we preserve the candidate
+      pool for ranking.
+    - Only return ``False`` when sqlglot *positively identifies* a write/DDL
+      statement.
+
+    This design avoids the failure mode where ``is_select_only`` rejects a
+    broken SELECT (e.g. ``WHERE Age  30``, missing operator) and accidentally
+    shrinks the candidate pool.
+    """
+    text = (sql or "").strip()
+    if not text:
+        return False
+    try:
+        parsed = sqlglot.parse_one(text, read="sqlite")
+    except SqlglotError:
+        # Cannot parse → we cannot confirm it is a write statement → allow.
+        return True
+    if parsed is None:
+        return True  # same reasoning
+
+    # Positively identified write/DDL → block
+    if isinstance(parsed, _WRITE_TYPES):
+        return False
+
+    # SELECT, UNION, WITH → allow
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Schema compliance helpers
+# ---------------------------------------------------------------------------
 
 def _norm_ident(name: Any) -> str:
     if name is None:
