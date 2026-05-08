@@ -18,6 +18,12 @@ Modes
     If none qualify, fall back to the first executable candidate (same as
     ``first_executable``).
 
+- ``majority_executable`` (realistic, no gold used):
+    Run all candidates. Among those that execute successfully, pick the SQL
+    whose *result set* was returned by the most candidates (majority vote).
+    Ties are broken by beam rank (lower = preferred).  If none execute, fall
+    back to top-1.  This is an ensemble-style picker that targets EX directly.
+
 - ``oracle`` (upper-bound, uses gold result):
     Among candidates that run, pick the first whose result set equals the
     gold query's result set.
@@ -27,6 +33,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
+from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -36,7 +44,10 @@ from src.evaluation.execute_eval import (
     get_db_path,
     normalize_sql_for_exec,
 )
-from src.evaluation.schema_sql_spider import sql_references_valid_for_spider_db
+from src.evaluation.schema_sql_spider import (
+    is_select_only,
+    sql_references_valid_for_spider_db,
+)
 
 
 def load_json(path: Path) -> Any:
@@ -55,20 +66,32 @@ def rerank_row(
     project_root: Path,
     mode: str,
     schema_index: Optional[Dict[str, Dict[str, Any]]] = None,
-) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+) -> Tuple[Dict[str, Any], Dict[str, Any], float]:
     """Pick a SQL for one prediction row.
 
-    Returns the (possibly updated) row plus a small stats dict used only for
-    the summary print at the end.
+    Returns:
+        (updated_row, stats_dict, elapsed_ms)
+    elapsed_ms is the wall-clock time spent executing candidates for this row.
     """
+    t_start = time.perf_counter()
+
     db_id = row["db_id"]
     gold_sql = normalize_sql_for_exec(row.get("gold_sql", ""))
     top1 = row.get("predicted_sql", "")
     candidates: List[str] = row.get("candidates") or [top1]
 
-    candidates = [normalize_sql_for_exec(c) for c in candidates if c is not None]
+    # Safety: discard any candidate that is not a SELECT statement.
+    # This protects evaluation DBs (and later, production DBs) from writes.
+    candidates = [
+        normalize_sql_for_exec(c)
+        for c in candidates
+        if c is not None and is_select_only(c)
+    ]
     if not candidates:
-        candidates = [top1]
+        # If all candidates were filtered out (e.g. all DDL/DML), keep top1
+        # as a last resort but mark it clearly.
+        top1_norm = normalize_sql_for_exec(top1)
+        candidates = [top1_norm]
 
     db_path = get_db_path(db_id, project_root)
 
@@ -126,6 +149,35 @@ def rerank_row(
             picked_reason = "fallback_top1"
             schema_valid_chosen = False
 
+    elif mode == "majority_executable":
+        # Run all candidates once; vote on result sets; pick the most common result.
+        # Ties go to the lowest beam rank (most confident beam).
+        vote_counts: Counter = Counter()
+        result_to_best_rank: Dict[Any, int] = {}  # result_key → lowest rank that produced it
+        result_to_sql: Dict[Any, str] = {}         # result_key → SQL for that rank
+
+        for rank, cand in enumerate(candidates):
+            ok, result = execute_sql(db_path, cand)
+            if not ok:
+                continue
+            any_executable = True
+            # Make the result hashable: execute_sql returns a set of tuples.
+            result_key = frozenset(result) if isinstance(result, set) else result
+            vote_counts[result_key] += 1
+            if result_key not in result_to_best_rank:
+                result_to_best_rank[result_key] = rank
+                result_to_sql[result_key] = cand
+
+        if result_to_best_rank:
+            # Pick the result with the most votes; tie → lowest beam rank (most confident)
+            best_key = max(
+                vote_counts.keys(),
+                key=lambda k: (vote_counts[k], -result_to_best_rank[k]),
+            )
+            chosen_sql = result_to_sql[best_key]
+            chosen_rank = result_to_best_rank[best_key]
+            picked_reason = "majority_executable"
+
     elif mode == "oracle":
         first_exec_idx = None
         first_match_idx = None
@@ -152,6 +204,8 @@ def rerank_row(
     else:
         raise ValueError(f"Unknown mode: {mode}")
 
+    elapsed_ms = (time.perf_counter() - t_start) * 1000.0
+
     out_row = dict(row)
     out_row["predicted_sql"] = chosen_sql
     rerank_meta: Dict[str, Any] = {
@@ -162,6 +216,7 @@ def rerank_row(
         "picked_reason": picked_reason,
         "original_top1": top1,
         "changed": chosen_sql.strip() != top1.strip(),
+        "elapsed_ms": round(elapsed_ms, 2),
     }
     if schema_valid_chosen is not None:
         rerank_meta["schema_valid_chosen"] = schema_valid_chosen
@@ -171,8 +226,9 @@ def rerank_row(
         "any_executable": any_executable,
         "changed": out_row["rerank"]["changed"],
         "picked_reason": picked_reason,
+        "elapsed_ms": elapsed_ms,
     }
-    return out_row, stats
+    return out_row, stats, elapsed_ms
 
 
 def main() -> None:
@@ -192,6 +248,7 @@ def main() -> None:
         choices=[
             "first_executable",
             "first_executable_schema_first",
+            "majority_executable",
             "oracle",
         ],
         default="first_executable",
@@ -220,12 +277,14 @@ def main() -> None:
     any_exec = 0
     changed = 0
     reasons: Dict[str, int] = {}
+    elapsed_ms_list: List[float] = []
 
     for i, row in enumerate(rows, start=1):
-        out_row, stats = rerank_row(
+        out_row, stats, elapsed_ms = rerank_row(
             row, project_root, args.mode, schema_index=schema_index
         )
         out_rows.append(out_row)
+        elapsed_ms_list.append(elapsed_ms)
 
         if stats["any_executable"]:
             any_exec += 1
@@ -239,19 +298,26 @@ def main() -> None:
     save_json(output_path, out_rows)
 
     total = len(out_rows)
+    elapsed_ms_list.sort()
+    p50 = elapsed_ms_list[int(total * 0.50)] if total else 0
+    p95 = elapsed_ms_list[int(total * 0.95)] if total else 0
+    p99 = elapsed_ms_list[int(total * 0.99)] if total else 0
+    avg = sum(elapsed_ms_list) / total if total else 0
+
     print()
     print("=" * 80)
     print("Rerank summary")
     print("=" * 80)
-    print(f"Mode:                       {args.mode}")
-    print(f"Total rows:                 {total}")
+    print(f"Mode:                          {args.mode}")
+    print(f"Total rows:                    {total}")
     print(f"Had >= 1 executable candidate: {any_exec}/{total} "
           f"({any_exec / total:.2%})" if total else "N/A")
-    print(f"Rows where chosen != top-1:   {changed}/{total} "
+    print(f"Rows where chosen != top-1:    {changed}/{total} "
           f"({changed / total:.2%})" if total else "N/A")
     print("Pick reason counts:")
     for k, v in sorted(reasons.items(), key=lambda kv: -kv[1]):
         print(f"  {k}: {v}")
+    print(f"Latency per row (ms):  avg={avg:.1f}  p50={p50:.1f}  p95={p95:.1f}  p99={p99:.1f}")
     print(f"Saved to: {output_path}")
 
 
