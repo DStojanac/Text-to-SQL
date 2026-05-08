@@ -1,0 +1,73 @@
+# FLAN-T5-large LoRA training config — v1 (Phase B first run)
+#
+# This is a direct clone of flan_t5_base_a100_v4.yaml with three changes:
+#   1. model_name: google/flan-t5-large  (770M params vs 250M for base)
+#   2. per_device_train_batch_size reduced from 8 → 4  (larger activations)
+#   3. gradient_accumulation_steps increased from 4 → 8  (keeps effective batch
+#      size = 32, same as v4)
+#
+# Everything else (LoRA rank, data, eval strategy, early stopping) is identical
+# so the comparison vs v4-base is clean.
+model_name: google/flan-t5-large
+
+# LoRA — same rank as v4-base
+use_lora: true
+lora_rank: 16
+lora_alpha: 32
+lora_target_modules:
+  - q
+  - k
+  - v
+  - o
+lora_dropout: 0.05
+
+# Data — same files as v4
+train_file: data/processed/spider_train_linked_mt10.jsonl
+dev_file: data/processed/spider_dev_linked_mt10.jsonl
+train_subset_size: null
+dev_subset_size: null
+
+# Tokenization
+max_input_length: 512
+max_target_length: 256
+
+# Training — reduced batch (larger model), same effective batch via grad accum
+num_train_epochs: 20
+learning_rate: 3e-4
+weight_decay: 0.01
+per_device_train_batch_size: 4
+per_device_eval_batch_size: 4
+gradient_accumulation_steps: 8
+eval_accumulation_steps: 4
+warmup_ratio: 0.1
+lr_scheduler_type: linear
+seed: 42
+
+# Precision — bf16 for A100
+fp16: false
+bf16: true
+
+gradient_checkpointing: false
+
+# Evaluation & saving
+eval_strategy: steps
+eval_steps: 500
+save_strategy: steps
+save_steps: 500
+save_total_limit: 3
+load_best_model_at_end: true
+metric_for_best_model: eval_loss
+greater_is_better: false
+
+# Early stopping
+early_stopping_patience: 5
+
+# Generation during eval
+predict_with_generate: true
+generation_max_length: 256
+
+# Logging
+logging_steps: 25
+
+# Output
+output_dir: outputs/checkpoints/flan_t5_large_a100_v1
