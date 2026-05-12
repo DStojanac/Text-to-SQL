@@ -1,0 +1,85 @@
+# Qwen2.5-Coder-1.5B QLoRA training config — v1 (Phase C proof-of-concept)
+#
+# Model: Qwen/Qwen2.5-Coder-1.5B-Instruct
+#   - 1.5B decoder-only, code-specialised
+#   - Chat template: apply_chat_template (system + user)
+#
+# Training approach:
+#   - QLoRA (4-bit NF4 base weights + float16 LoRA adapters)
+#   - Uses trainer_causal.py (NOT trainer.py, which is seq2seq-only)
+#   - Supervised fine-tuning on Spider train set (input_text → target_sql)
+#
+# Purpose:
+#   "Proof that the pipeline works end-to-end for a causal LM."
+#   Establishes a Qwen 1.5B baseline before running the larger 7B model.
+
+model_name: Qwen/Qwen2.5-Coder-1.5B-Instruct
+arch: causal
+
+# QLoRA quantization
+quantization: 4bit # NF4 via bitsandbytes
+bnb_4bit_quant_type: nf4
+bnb_4bit_use_double_quant: true
+bnb_4bit_compute_dtype: float16
+
+# LoRA — target all projection layers for decoder-only (more parameters than T5)
+use_lora: true
+lora_rank: 16
+lora_alpha: 32
+lora_target_modules:
+  - q_proj
+  - k_proj
+  - v_proj
+  - o_proj
+  - gate_proj
+  - up_proj
+  - down_proj
+lora_dropout: 0.05
+
+# Data
+train_file: data/processed/spider_train_linked_mt10.jsonl
+dev_file: data/processed/spider_dev_linked_mt10.jsonl
+train_subset_size: null
+dev_subset_size: null
+
+# Tokenization
+max_input_length: 1024 # causal LM needs prompt + response in one sequence
+max_target_length: 256
+
+# Training
+num_train_epochs: 3 # QLoRA converges faster than seq2seq fine-tuning
+learning_rate: 2e-4
+weight_decay: 0.01
+per_device_train_batch_size: 4
+per_device_eval_batch_size: 4
+gradient_accumulation_steps: 8
+eval_accumulation_steps: 4
+warmup_ratio: 0.03
+lr_scheduler_type: cosine
+seed: 42
+
+# Precision - QLoRA handles the quantization separately
+fp16: false
+bf16: true
+
+# Gradient checkpointing recommended for causal LMs (larger activations)
+gradient_checkpointing: true
+
+# Evaluation & saving
+eval_strategy: steps
+eval_steps: 200
+save_strategy: steps
+save_steps: 200
+save_total_limit: 3
+load_best_model_at_end: true
+metric_for_best_model: eval_loss
+greater_is_better: false
+
+# Early stopping
+early_stopping_patience: 5
+
+# Logging
+logging_steps: 25
+
+# Output
+output_dir: outputs/checkpoints/qwen25_coder_15b_qlora_v1
