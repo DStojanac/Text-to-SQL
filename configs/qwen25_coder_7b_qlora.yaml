@@ -1,0 +1,77 @@
+# Qwen2.5-Coder-7B QLoRA training config — v1 (Phase C main run)
+#
+# Model: Qwen/Qwen2.5-Coder-7B-Instruct
+#   - 7B decoder-only, code-specialised
+#   - Chat template: apply_chat_template (system + user)
+
+model_name: Qwen/Qwen2.5-Coder-7B-Instruct
+arch: causal
+
+# QLoRA quantization
+quantization: 4bit
+bnb_4bit_quant_type: nf4
+bnb_4bit_use_double_quant: true
+bnb_4bit_compute_dtype: float16
+
+# LoRA
+use_lora: true
+lora_rank: 16
+lora_alpha: 32
+lora_target_modules:
+  - q_proj
+  - k_proj
+  - v_proj
+  - o_proj
+  - gate_proj
+  - up_proj
+  - down_proj
+lora_dropout: 0.05
+
+# Data
+train_file: data/processed/spider_train_linked_mt10.jsonl
+dev_file: data/processed/spider_dev_linked_mt10.jsonl
+train_subset_size: null
+dev_subset_size: null
+
+# Tokenization — 7B handles longer sequences, but we keep input within 1024 for
+# speed (schema-linked prompts are typically 300–600 tokens)
+max_input_length: 1024
+max_target_length: 256
+
+# Training — smaller batch than 1.5B due to larger activations
+num_train_epochs: 3
+learning_rate: 2e-4
+weight_decay: 0.01
+per_device_train_batch_size: 2
+per_device_eval_batch_size: 2
+gradient_accumulation_steps: 16 # effective batch size = 32 (matches other configs)
+eval_accumulation_steps: 4
+warmup_ratio: 0.03
+lr_scheduler_type: cosine
+seed: 42
+
+# Precision
+fp16: false
+bf16: true
+
+# Gradient checkpointing is strongly recommended at 7B
+gradient_checkpointing: true
+
+# Evaluation & saving — less frequent than 1.5B to reduce eval overhead
+eval_strategy: steps
+eval_steps: 300
+save_strategy: steps
+save_steps: 300
+save_total_limit: 3
+load_best_model_at_end: true
+metric_for_best_model: eval_loss
+greater_is_better: false
+
+# Early stopping
+early_stopping_patience: 5
+
+# Logging
+logging_steps: 25
+
+# Output
+output_dir: outputs/checkpoints/qwen25_coder_7b_qlora_v1
