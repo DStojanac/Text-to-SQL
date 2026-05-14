@@ -157,6 +157,62 @@ def select_relevant_tables(
     return [t for t in table_names if t in selected]
 
 
+def prune_schema_dict(
+    schema: Dict[str, Any],
+    question: str,
+    max_tables: int = 6,
+) -> Dict[str, Any]:
+    """Return a pruned copy of an arbitrary schema dict.
+
+    This is the custom-database companion to ``prune_schema``.
+    Instead of loading schema from Spider's ``tables.json`` by ``db_id``,
+    it accepts a schema dict produced by any source — including
+    ``src.data.schema_from_sqlite.schema_from_sqlite``.
+
+    The returned dict has the same structure as ``prune_schema`` returns,
+    and is compatible with ``serialize_pruned_schema``,
+    ``sql_references_valid_for_spider_db``, and all other pipeline code.
+
+    Args:
+        schema: Full schema dict (e.g. from ``schema_from_sqlite``).
+        question: Natural language question.
+        max_tables: Max tables to select by relevance (FK neighbors may add more).
+
+    Returns:
+        Pruned schema dict with only relevant tables and their columns.
+    """
+    selected_tables = select_relevant_tables(question, schema, max_tables)
+    selected_set = set(selected_tables)
+
+    pruned_columns = {
+        tname: schema["columns_by_table"][tname]
+        for tname in selected_tables
+    }
+
+    column_names = schema["column_names_original"]
+    table_names = schema["tables"]
+    pruned_fks = []
+    for src_col_idx, tgt_col_idx in schema["foreign_keys"]:
+        src_table_idx = column_names[src_col_idx][0]
+        tgt_table_idx = column_names[tgt_col_idx][0]
+        if src_table_idx < 0 or tgt_table_idx < 0:
+            continue
+        src_table = table_names[src_table_idx]
+        tgt_table = table_names[tgt_table_idx]
+        if src_table in selected_set and tgt_table in selected_set:
+            pruned_fks.append([src_col_idx, tgt_col_idx])
+
+    return {
+        "db_id": schema["db_id"],
+        "tables": selected_tables,
+        "columns_by_table": pruned_columns,
+        "primary_keys": schema["primary_keys"],
+        "foreign_keys": pruned_fks,
+        "column_names_original": column_names,
+        "original_tables": table_names,
+    }
+
+
 def prune_schema(
     db_id: str,
     question: str,
