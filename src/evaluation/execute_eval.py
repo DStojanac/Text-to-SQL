@@ -20,11 +20,15 @@ Usage:
 """
 
 import argparse
+import concurrent.futures
 import json
 import re
 import sqlite3
 from pathlib import Path
-from typing import Any, List, Set, Tuple
+from typing import Any, List, Optional, Set, Tuple
+
+# Maximum rows fetched from any single SQL query.
+MAX_RESULT_ROWS: int = 10_000
 
 
 def load_json(path: Path) -> Any:
@@ -37,44 +41,57 @@ def get_db_path(db_id: str, project_root: Path) -> Path:
     return project_root / "data" / "raw" / "spider" / "database" / db_id / f"{db_id}.sqlite"
 
 
+def _run_query(db_path: Path, sql: str) -> Tuple[bool, Any]:
+    """Execute a query inside a worker thread (called by execute_sql).
+
+    Opens a fresh read-only connection, runs the query, and returns
+    a (success, result_set) pair.  Exceptions propagate naturally to
+    the ThreadPoolExecutor future so the caller can handle them.
+    """
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    try:
+        cursor = conn.cursor()
+        cursor.execute(sql)
+        rows = cursor.fetchmany(MAX_RESULT_ROWS)
+        return True, set(tuple(row) for row in rows)
+    finally:
+        conn.close()
+
+
 def execute_sql(db_path: Path, sql: str, timeout: int = 5) -> Tuple[bool, Any]:
     """Execute a SQL query on a SQLite database and return results.
 
     Args:
         db_path:  Path to the .sqlite file.
         sql:      SQL query string.
-        timeout:  Max seconds to allow. Prevents infinite loops from
-                  malformed queries (e.g. cartesian products).
+        timeout:  Wall-clock seconds before the query is abandoned.
+                 Implemented via a background thread so that
+                  runaway queries (e.g. accidental cartesian products) do
+                  not hang the caller indefinitely.
 
     Returns:
         (success: bool, result: set of tuples or error string)
 
-    We return results as a set of tuples because:
-    - Sets ignore row ORDER (unless the query has ORDER BY, but Spider's
-      execution accuracy typically ignores order)
-    - Tuples are hashable so we can put rows in a set
+    Result rows are returned as a set of tuples so comparison is
+    order-independent (Spider EX metric ignores row order).
+    At most MAX_RESULT_ROWS rows are returned; the cap is high enough
+    that it never affects Spider evaluation.
     """
     if not db_path.exists():
         return False, f"Database file not found: {db_path}"
 
-    try:
-        # Connect in read-only mode — we never want to modify the database.
-        # uri=True enables the ?mode=ro query parameter.
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=timeout)
-        cursor = conn.cursor()
-        cursor.execute(sql)
-        rows = cursor.fetchall()
-        conn.close()
-
-        # Convert to a frozenset of tuples for order-independent comparison
-        return True, set(tuple(row) for row in rows)
-
-    except sqlite3.OperationalError as e:
-        return False, f"SQL error: {e}"
-    except sqlite3.Warning as e:
-        return False, f"SQL warning: {e}"
-    except Exception as e:
-        return False, f"Unexpected error: {e}"
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(_run_query, db_path, sql)
+        try:
+            return future.result(timeout=timeout)
+        except concurrent.futures.TimeoutError:
+            return False, f"Query timed out after {timeout}s"
+        except sqlite3.OperationalError as e:
+            return False, f"SQL error: {e}"
+        except sqlite3.Warning as e:
+            return False, f"SQL warning: {e}"
+        except Exception as e:
+            return False, f"Unexpected error: {e}"
 
 
 def normalize_sql_for_exec(text: str) -> str:
