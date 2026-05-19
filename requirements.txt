@@ -28,6 +28,7 @@ wandb
 
 # --- Config & utils ---
 pyyaml
+python-dotenv>=1.0.1
 tqdm
 
 # --- Notebooks 
