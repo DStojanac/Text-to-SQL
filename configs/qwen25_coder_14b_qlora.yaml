@@ -1,0 +1,63 @@
+model_name: Qwen/Qwen2.5-Coder-14B-Instruct
+arch: causal
+
+# QLoRA — identical to 7B
+quantization: 4bit
+bnb_4bit_quant_type: nf4
+bnb_4bit_use_double_quant: true
+bnb_4bit_compute_dtype: float16
+
+# LoRA
+use_lora: true
+lora_rank: 16
+lora_alpha: 32
+lora_target_modules:
+  - q_proj
+  - k_proj
+  - v_proj
+  - o_proj
+  - gate_proj
+  - up_proj
+  - down_proj
+lora_dropout: 0.05
+
+# Data
+train_file: data/processed/spider_train_linked_mt10.jsonl
+dev_file: data/processed/spider_dev_linked_mt10.jsonl
+
+max_input_length: 1024
+max_target_length: 256
+
+num_train_epochs: 2
+
+learning_rate: 1e-4
+
+# Batch=1 with more accumulation -> same effective batch=32.
+per_device_train_batch_size: 1
+per_device_eval_batch_size: 1
+gradient_accumulation_steps: 32
+
+warmup_ratio: 0.03
+lr_scheduler_type: cosine
+weight_decay: 0.01
+seed: 42
+
+bf16: true
+gradient_checkpointing: true # MANDATORY at 14B
+
+eval_strategy: steps
+eval_steps: 100
+save_strategy: steps
+save_steps: 100
+save_total_limit: 3
+
+load_best_model_at_end: true
+metric_for_best_model: eval_loss
+greater_is_better: false
+
+# Patience tighter, because evals are more frequent.
+early_stopping_patience: 3
+
+logging_steps: 25
+
+output_dir: outputs/checkpoints/qwen25_coder_14b_qlora_v1
