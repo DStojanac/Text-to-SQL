@@ -161,11 +161,13 @@ def query(request: QueryRequest):
         raise HTTPException(status_code=404, detail="Database not found.")
 
     try:
+        num_candidates = request.num_candidates or request.num_beams
         result = pipeline.run(
             question=request.question,
             db_path=db_path,
             max_tables=request.max_tables,
             num_beams=request.num_beams,
+            num_candidates=num_candidates,
         )
     except Exception:
         logger.exception(
