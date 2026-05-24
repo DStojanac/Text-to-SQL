@@ -1,0 +1,30 @@
+# Slim dependencies for the HuggingFace Docker Space (FastAPI backend only).
+# Install with: pip install -r requirements-api.txt
+
+# --- Core ML stack ---
+transformers==4.46.3
+peft==0.13.2
+accelerate==0.34.2
+datasets==3.0.2
+tokenizers>=0.20,<0.21
+safetensors>=0.4.5
+sentencepiece==0.2.0
+huggingface_hub>=0.26.0
+
+torch>=2.4,<2.12
+bitsandbytes>=0.44.1
+
+# --- SQL + schema linking ---
+sqlglot>=23.0
+scikit-learn
+numpy
+
+# --- API server ---
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+pydantic>=2.0
+
+# --- Config ---
+python-dotenv>=1.0.1
+pyyaml
+tqdm
