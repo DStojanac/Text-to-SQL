@@ -21,6 +21,12 @@ class QueryRequest(BaseModel):
     )
     max_tables: int = Field(6, ge=1, le=20, description="Max tables passed to schema linker")
     num_beams: int = Field(8, ge=1, le=16, description="Beam search width")
+    num_candidates: Optional[int] = Field(
+        None,
+        ge=1,
+        le=16,
+        description="Number of SQL candidates to return for reranking; defaults to num_beams",
+    )
 
 
 class QueryResponse(BaseModel):
