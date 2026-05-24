@@ -132,12 +132,22 @@ with st.form("query_form", clear_on_submit=False):
         help="Matches batch eval when equal to number of rerank candidates. "
         "Lower values are usually faster but explore fewer SQL alternatives.",
     )
+    max_tables = st.slider(
+        "Schema tables (max_tables)",
+        min_value=1,
+        max_value=10,
+        value=6,
+        help="How many tables TF-IDF schema linking keeps in the model prompt "
+        "(plus FK neighbors). Training used max_tables=10; use 10 on large "
+        "schemas. Small DBs (e.g. bookstore) include all tables regardless.",
+    )
     submitted = st.form_submit_button("Generate SQL", type="primary")
 
 if submitted and question:
     request_body = {
         "question": question,
         "db_id": selected_db,
+        "max_tables": max_tables,
         "num_beams": num_beams,
         "num_candidates": num_beams,
     }
