@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import logging
+import os
 import sqlite3
 import threading
 import time
@@ -11,6 +12,20 @@ from typing import Any, Dict, List, Optional, Tuple
 import torch
 
 logger = logging.getLogger(__name__)
+
+
+def resolve_model_dir(model_dir: str) -> Path:
+    """Resolve a local checkpoint path or HuggingFace Hub repo id to a directory."""
+    local = Path(model_dir)
+    if local.is_dir():
+        return local.resolve()
+
+    from huggingface_hub import snapshot_download
+
+    token = os.getenv("HF_TOKEN") or os.getenv("HUGGING_FACE_HUB_TOKEN")
+    logger.info("Downloading LoRA adapter from HuggingFace Hub: %s", model_dir)
+    downloaded = snapshot_download(repo_id=model_dir, token=token)
+    return Path(downloaded)
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -40,7 +55,8 @@ class InferencePipeline:
         rerank_mode: str = "majority_executable",
         databases_dir: Optional[Path] = None,
     ) -> None:
-        self.model_dir = Path(model_dir)
+        self._model_dir_spec = model_dir
+        self.model_dir: Optional[Path] = None
         self.arch = arch
         self.base_model = base_model
         self.use_lora = use_lora
@@ -61,9 +77,17 @@ class InferencePipeline:
     # Lifecycle
     # ------------------------------------------------------------------
 
+    @property
+    def model_dir_display(self) -> str:
+        """Human-readable model location (local path or Hub repo id)."""
+        return str(self.model_dir or self._model_dir_spec)
+
     def load(self) -> None:
         """Load model and tokenizer. Call once at application startup."""
         from src.models.predictor import load_causal_model, load_seq2seq_model
+
+        if self.model_dir is None:
+            self.model_dir = resolve_model_dir(self._model_dir_spec)
 
         self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         logger.info("Loading model from %s on %s", self.model_dir, self._device)

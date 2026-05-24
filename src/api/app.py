@@ -59,6 +59,11 @@ _ARCH = os.getenv("ARCH", "causal")
 _LOAD_IN_4BIT = _parse_bool_env("LOAD_IN_4BIT", True)
 _NUM_BEAMS = int(os.getenv("NUM_BEAMS", "8"))
 _RERANK_MODE = os.getenv("RERANK_MODE", "majority_executable")
+_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("ALLOWED_ORIGINS", "http://localhost:8501").split(",")
+    if origin.strip()
+]
 
 # ---------------------------------------------------------------------------
 # Pipeline singleton
@@ -95,7 +100,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8501"],  # Streamlit default port only
+    allow_origins=_ALLOWED_ORIGINS,
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type"],
 )
@@ -109,7 +114,7 @@ def health():
     return HealthResponse(
         status="ok",
         model_loaded=pipeline.is_loaded,
-        model_dir=str(pipeline.model_dir),
+        model_dir=pipeline.model_dir_display,
         arch=pipeline.arch,
     )
 
