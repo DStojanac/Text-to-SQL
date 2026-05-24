@@ -8,6 +8,9 @@ The API must be running first:
 
 Set API_BASE env var to point at a non-local server:
     API_BASE=http://my-server:8000 streamlit run frontend/app.py
+
+For a private HuggingFace API Space, also set HF_TOKEN (Read or Write token):
+    HF_TOKEN=hf_... streamlit run frontend/app.py
 """
 
 from __future__ import annotations
@@ -24,7 +27,16 @@ from dotenv import load_dotenv
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(_PROJECT_ROOT / ".env")
 
-API_BASE = os.getenv("API_BASE", "http://localhost:8000")
+API_BASE = os.getenv("API_BASE", "http://localhost:8000").rstrip("/")
+HF_TOKEN = os.getenv("HF_TOKEN") or os.getenv("HUGGING_FACE_HUB_TOKEN")
+
+
+def _api_headers() -> dict[str, str]:
+    """Auth header for private HuggingFace Spaces (proxy-level Bearer token)."""
+    if HF_TOKEN:
+        return {"Authorization": f"Bearer {HF_TOKEN}"}
+    return {}
+
 
 # ---------------------------------------------------------------------------
 # Cached API helpers — fetched at most once per TTL, not on every keypress.
@@ -36,7 +48,7 @@ API_BASE = os.getenv("API_BASE", "http://localhost:8000")
 @st.cache_data(ttl=30, show_spinner=False)
 def fetch_health() -> dict | None:
     try:
-        return requests.get(f"{API_BASE}/health", timeout=3).json()
+        return requests.get(f"{API_BASE}/health", timeout=3, headers=_api_headers()).json()
     except Exception:
         return None
 
@@ -44,7 +56,7 @@ def fetch_health() -> dict | None:
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_databases() -> list[str]:
     try:
-        return requests.get(f"{API_BASE}/databases", timeout=3).json()
+        return requests.get(f"{API_BASE}/databases", timeout=3, headers=_api_headers()).json()
     except Exception:
         return []
 
@@ -52,7 +64,9 @@ def fetch_databases() -> list[str]:
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_schema(db_id: str) -> dict | None:
     try:
-        return requests.get(f"{API_BASE}/database/{db_id}/schema", timeout=3).json()
+        return requests.get(
+            f"{API_BASE}/database/{db_id}/schema", timeout=3, headers=_api_headers()
+        ).json()
     except Exception:
         return None
 
@@ -158,6 +172,7 @@ if submitted and question:
                 f"{API_BASE}/query",
                 json=request_body,
                 timeout=120,
+                headers=_api_headers(),
             )
             resp.raise_for_status()
             data = resp.json()

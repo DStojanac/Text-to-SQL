@@ -1,0 +1,7 @@
+# Slim dependencies for the HuggingFace Streamlit Space (UI only).
+# Install with: pip install -r requirements-frontend.txt
+
+streamlit>=1.28.0
+requests>=2.31.0
+pandas>=2.0.0
+python-dotenv>=1.0.1
